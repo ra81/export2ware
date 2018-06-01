@@ -27,8 +27,8 @@ async function run_async() {
 
     let $html = $(document);
 
-    // определяем где мы находимся
-    let onTradehall = Url_rx.unit_trade_hall.test(document.location.pathname);
+    // определяем где мы находимся. для трейдхолла может не быть вообще товара, тады нет таблицы.
+    let onTradehall = Url_rx.unit_trade_hall.test(document.location.pathname) && $html.find("table.grid").length > 0;
     let onWareSale = Url_rx.unit_sale.test(document.location.pathname) && parseUnitType($html) == UnitTypes.warehouse;
 
     if (onTradehall && EnableExport2w)
@@ -41,7 +41,6 @@ async function run_async() {
         wareSale();
 
     // TODO: при запоминании выбранного склада нужно всегда проверять чтобы новая спецуха склада не отличалась от старой
-    // TODO: в магазе может не быть товара вообще, ситуация выдает ошибку. предусмотреть
     async function tradehallExport_async() {
         //  задаем стили для выделения
         //$("<style>")
