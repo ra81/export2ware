@@ -4,6 +4,8 @@
 $ = jQuery = jQuery.noConflict(true);
 $xioDebug = true;
 let Realm = getRealmOrError();
+let GameDate = parseGameDate(document);
+
 let Export2WareStoreKeyCode = "e2w";
 let ProdCatStoreKeyCode = "prct";   // сделал неким отдельным ключиком, вдруг будет скрипт читающий эту же табличку
 let EnablePriceMgmnt = true;        // если выключить то кнопки изменения цен исчезнут
@@ -40,7 +42,6 @@ async function run_async() {
     if (onWareSale)
         wareSale();
 
-    // TODO: при запоминании выбранного склада нужно всегда проверять чтобы новая спецуха склада не отличалась от старой
     async function tradehallExport_async() {
         //  задаем стили для выделения
         //$("<style>")
@@ -413,7 +414,7 @@ function restore(): IDictionaryN<IWareProps> {
     return data == null ? {} : JSON.parse(LZString.decompress(data));
 }
 
-// TODO: как часто таскать список всех продуктов???? вопрос
+
 /**
  * Читает с локалстораджа данные по розничным товарам с категориями.
    Если там нет, то тащит и сохраняет на будущее
@@ -421,18 +422,26 @@ function restore(): IDictionaryN<IWareProps> {
 async function getProdWithCategories_async(): Promise<IDictionaryN<IProductAPI>> {
     let storageKey = buildStoreKey(Realm, ProdCatStoreKeyCode);
     let data = localStorage.getItem(storageKey);
+    let todayStr = dateToShort(nullCheck(GameDate));
 
-    if (data != null)
-        return JSON.parse(LZString.decompress(data));
+    // если сегодня уже данные засейвили, тогда вернем их
+    // обновлять будем раз в день насильно. вдруг введут новые продукты вся херня
+    if (data != null) {
+        let [dateStr, prods] = JSON.parse(LZString.decompress(data));
+        if (todayStr == dateStr)
+            return prods;
+    }
 
     // если данных по категориям еще нет, надо их дернуть и записать в хранилище на будущее
     let url = formatStr(UrlApi_tpl.retail_products, Realm);
+    logDebug("Список всех розничных продуктов устарел. Обновляем.");
     let jsonObj = await tryGetJSON_async(url);
     let prods = parseRetailProductsAPI(jsonObj, url);
-    localStorage[storageKey] = LZString.compress(JSON.stringify(prods));
+    localStorage[storageKey] = LZString.compress(JSON.stringify([todayStr, prods]));
 
     return prods;
 }
+
 
 /**
  * Для заданного набора продуктов выдает список розничных отделов c кол-вом продуктов в каждом
@@ -454,7 +463,6 @@ function categories(prods: IProduct[], prodCatDict: IDictionaryN<IProductAPI>) {
 
     return cats;
 }
-
 /**
  * оставляем только склады которые могут хранить хоть 1 продукт из списка
    оставляем только те продукты на складе которые есть в магазине.

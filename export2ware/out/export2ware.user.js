@@ -4837,6 +4837,7 @@ class ParseError extends Error {
 $ = jQuery = jQuery.noConflict(true);
 $xioDebug = true;
 let Realm = getRealmOrError();
+let GameDate = parseGameDate(document);
 let Export2WareStoreKeyCode = "e2w";
 let ProdCatStoreKeyCode = "prct"; // сделал неким отдельным ключиком, вдруг будет скрипт читающий эту же табличку
 let EnablePriceMgmnt = true; // если выключить то кнопки изменения цен исчезнут
@@ -4858,7 +4859,6 @@ function run_async() {
             tradehallPrice();
         if (onWareSale)
             wareSale();
-        // TODO: при запоминании выбранного склада нужно всегда проверять чтобы новая спецуха склада не отличалась от старой
         function tradehallExport_async() {
             return __awaiter(this, void 0, void 0, function* () {
                 //  задаем стили для выделения
@@ -5165,7 +5165,6 @@ function restore() {
     let data = localStorage.getItem(storageKey);
     return data == null ? {} : JSON.parse(LZString.decompress(data));
 }
-// TODO: как часто таскать список всех продуктов???? вопрос
 /**
  * Читает с локалстораджа данные по розничным товарам с категориями.
    Если там нет, то тащит и сохраняет на будущее
@@ -5174,13 +5173,20 @@ function getProdWithCategories_async() {
     return __awaiter(this, void 0, void 0, function* () {
         let storageKey = buildStoreKey(Realm, ProdCatStoreKeyCode);
         let data = localStorage.getItem(storageKey);
-        if (data != null)
-            return JSON.parse(LZString.decompress(data));
+        let todayStr = dateToShort(nullCheck(GameDate));
+        // если сегодня уже данные засейвили, тогда вернем их
+        // обновлять будем раз в день насильно. вдруг введут новые продукты вся херня
+        if (data != null) {
+            let [dateStr, prods] = JSON.parse(LZString.decompress(data));
+            if (todayStr == dateStr)
+                return prods;
+        }
         // если данных по категориям еще нет, надо их дернуть и записать в хранилище на будущее
         let url = formatStr(UrlApi_tpl.retail_products, Realm);
+        logDebug("Список всех розничных продуктов устарел. Обновляем.");
         let jsonObj = yield tryGetJSON_async(url);
         let prods = parseRetailProductsAPI(jsonObj, url);
-        localStorage[storageKey] = LZString.compress(JSON.stringify(prods));
+        localStorage[storageKey] = LZString.compress(JSON.stringify([todayStr, prods]));
         return prods;
     });
 }
