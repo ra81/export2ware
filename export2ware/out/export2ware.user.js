@@ -4839,6 +4839,8 @@ $xioDebug = true;
 let Realm = getRealmOrError();
 let Export2WareStoreKeyCode = "e2w";
 let ProdCatStoreKeyCode = "prct"; // сделал неким отдельным ключиком, вдруг будет скрипт читающий эту же табличку
+let EnablePriceMgmnt = true; // если выключить то кнопки изменения цен исчезнут
+let EnableExport2w = true; // если выключить то функции экспорт ВСЕ перестанут работать
 // упрощаем себе жисть, подставляем имя скрипта всегда в сообщении
 function log(msg, ...args) {
     msg = "export2ware: " + msg;
@@ -4848,12 +4850,17 @@ function run_async() {
     return __awaiter(this, void 0, void 0, function* () {
         let $html = $(document);
         // определяем где мы находимся
-        if (Url_rx.unit_trade_hall.test(document.location.pathname))
-            onTradehall_async();
-        else if (Url_rx.unit_sale.test(document.location.pathname) && parseUnitType($html) == UnitTypes.warehouse)
-            onWareSale();
+        let onTradehall = Url_rx.unit_trade_hall.test(document.location.pathname);
+        let onWareSale = Url_rx.unit_sale.test(document.location.pathname) && parseUnitType($html) == UnitTypes.warehouse;
+        if (onTradehall && EnableExport2w)
+            yield tradehallExport_async();
+        if (onTradehall && EnablePriceMgmnt)
+            tradehallPrice();
+        if (onWareSale)
+            wareSale();
         // TODO: при запоминании выбранного склада нужно всегда проверять чтобы новая спецуха склада не отличалась от старой
-        function onTradehall_async() {
+        // TODO: в магазе может не быть товара вообще, ситуация выдает ошибку. предусмотреть
+        function tradehallExport_async() {
             return __awaiter(this, void 0, void 0, function* () {
                 //  задаем стили для выделения
                 //$("<style>")
@@ -5081,8 +5088,25 @@ function run_async() {
                 });
             });
         }
+        function tradehallPrice() {
+            let $inputs = $html.find("input[name^='productData[price]'");
+            $inputs.each((i, e) => {
+                let $inp = $(e);
+                $inp.before(`<input type='button' class="pm" data-oper='dec' value='-'>`);
+                $inp.after(`<input type='button' class="pm" data-oper='inc' value='+'>`);
+            });
+            oneOrError($html, "table.grid").on("click", "input.pm", null, function (event) {
+                //console.log("input.pm click fired");
+                let $btn = $(this);
+                let oper = $btn.data("oper");
+                let $price = oneOrError($btn.closest("td"), "input:text");
+                let price = numberfyOrError($price.val());
+                price = oper == "inc" ? price * 1.1 : price * 0.9;
+                $price.val(price.toFixed(2));
+            });
+        }
         // TODO: зашить подлости для мудаков вроде пидора пишущего на форуме дерьмо
-        function onWareSale() {
+        function wareSale() {
             // subid 
             let n = extractIntPositive(document.location.pathname);
             if (n == null)
