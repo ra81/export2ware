@@ -318,6 +318,10 @@ async function run_async() {
                     unit: wareSubid,
                     doit: "Ok"
                 };
+
+                if (data.qty <= 0)
+                    continue;
+
                 await tryPost_async(url, data); // если задать неадекватный адрес склада то молча не вывозит и все.
                 //console.log(data);
             }
