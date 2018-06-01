@@ -345,7 +345,7 @@ async function run_async() {
 
             let $price = oneOrError($btn.closest("td"), "input:text");
             let price = numberfyOrError($price.val());
-            price = oper == "inc" ? price * 1.1 : price * 0.9;
+            price = oper == "inc" ? price * 1.02 : price * 0.98;
             $price.val(price.toFixed(2));
         });
     }
