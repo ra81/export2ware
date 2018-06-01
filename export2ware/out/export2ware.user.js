@@ -5104,7 +5104,6 @@ function run_async() {
                 $price.val(price.toFixed(2));
             });
         }
-        // TODO: зашить подлости для мудаков вроде пидора пишущего на форуме дерьмо
         function wareSale() {
             // subid 
             let n = extractIntPositive(document.location.pathname);
@@ -5113,30 +5112,37 @@ function run_async() {
             let subid = n[0];
             // name
             let [name, city] = parseUnitNameCity($html);
-            // спецуха
-            // TODO: если спецуха сменилась то сейвить данные автоматом при включенной галке
-            let spec = oneOrError($html, "table:has(a.popup[href*='speciality_change'])").find("td").eq(2).text().trim();
             let dict = restore();
             let isSaved = dict[subid] != null;
+            let saveWare = () => {
+                // собираем всю инфу по товарам которые может хранить собственно сей склад и подготавливаем Запись
+                let [, saleItems] = parseWareSaleNew(document, document.location.pathname);
+                let products = dictValues(saleItems).map((v, i, a) => v.product);
+                dict[subid] = {
+                    name: name,
+                    city: city,
+                    products: products,
+                    spec: spec
+                };
+                store(dict);
+            };
+            let deleteWare = () => {
+                delete dict[subid];
+                store(dict);
+            };
+            // если спецуха изменилась, то обновим данные по складу
+            let spec = oneOrError($html, "table:has(a.popup[href*='speciality_change'])").find("td").eq(2).text().trim();
+            if (isSaved && dict[subid].spec != spec)
+                saveWare();
             // рисуем кнопки хуёпки
             let html = `<input type="checkbox" ${isSaved ? "checked" : ""} id="saveWare" style="margin-left:30px"><label for="saveWare">Запомнить склад</label>`;
             $html.find("label[for='filter-empty-qty']").after(html);
             $html.find("#saveWare").on("click", (event) => {
                 let $cbx = $(event.target);
-                if ($cbx.prop("checked")) {
-                    // собираем всю инфу по товарам которые может хранить собственно сей склад и подготавливаем Запись
-                    let [, saleItems] = parseWareSaleNew(document, document.location.pathname);
-                    let products = dictValues(saleItems).map((v, i, a) => v.product);
-                    dict[subid] = {
-                        name: name,
-                        city: city,
-                        products: products,
-                        spec: spec
-                    };
-                }
+                if ($cbx.prop("checked"))
+                    saveWare();
                 else
-                    delete dict[subid];
-                store(dict);
+                    deleteWare();
             });
         }
     });
@@ -5159,6 +5165,7 @@ function restore() {
     let data = localStorage.getItem(storageKey);
     return data == null ? {} : JSON.parse(LZString.decompress(data));
 }
+// TODO: как часто таскать список всех продуктов???? вопрос
 /**
  * Читает с локалстораджа данные по розничным товарам с категориями.
    Если там нет, то тащит и сохраняет на будущее
