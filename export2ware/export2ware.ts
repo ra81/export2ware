@@ -2,7 +2,7 @@
 
 
 $ = jQuery = jQuery.noConflict(true);
-$xioDebug = true;
+let $xioDebug = true;
 let Realm = getRealmOrError();
 let GameDate = parseGameDate(document);
 
@@ -26,6 +26,12 @@ interface IWareProps {
 }
 
 async function run_async() {
+
+    let Url_rx = {
+        // для юнита
+        unit_sale: /\/[a-z]+\/(?:main|window)\/unit\/view\/\d+\/sale\/?/i,          // продажа склад/завод
+        unit_trade_hall: /\/[a-z]+\/(?:main|window)\/unit\/view\/\d+\/trading_hall\/?/i, // торговый зал
+    };
 
     let $html = $(document);
 
@@ -433,8 +439,8 @@ async function getProdWithCategories_async(): Promise<IDictionaryN<IProductAPI>>
     }
 
     // если данных по категориям еще нет, надо их дернуть и записать в хранилище на будущее
-    let url = formatStr(UrlApi_tpl.retail_products, Realm);
-    logDebug("Список всех розничных продуктов устарел. Обновляем.");
+    let url = formatStr(`/api/{0}/main/product/goods`, Realm);
+    log("Список всех розничных продуктов устарел. Обновляем.");
     let jsonObj = await tryGetJSON_async(url);
     let prods = parseRetailProductsAPI(jsonObj, url);
     localStorage[storageKey] = LZString.compress(JSON.stringify([todayStr, prods]));
@@ -493,6 +499,664 @@ function filterWares(waresDict: IDictionaryN<IWareProps>, pids: number[]) {
     return resDict;
 }
 
+// всякий мусор для работы всего
+//
+enum UnitTypes {
+    unknown = 0, // для неописанных еще в коде юнитов
+    animalfarm, // животновод ферам
+    farm,       // любая ферма земля
+    lab,         // лаборатория
+    mill,
+    mine,
+    office,
+    oilpump,
+    orchard,
+    sawmill,
+    shop,
+    seaport,
+    warehouse,
+    workshop,
+    villa,
+    fishingbase,
+    service_light, fitness, laundry, hairdressing,
+    medicine,
+    restaurant,
+    power, coal_power, incinerator_power, oil_power, sun_power,
+    fuel,
+    repair,
+    apiary,
+    educational, kindergarten,  // картинка внутри юнита для образовательных и в списке
+    network, it, cellular,      // в юните и в списке
+}
+enum SalePolicies {
+    nosale = 0,
+    any,
+    some,
+    company,
+    corporation
+}
+interface IDictionary<T> {
+    [key: string]: T;
+}
+interface IDictionaryN<T> {
+    [key: number]: T;
+}
+interface IProduct {
+    name: string;
+    img: string;    // полный путь картинки /img/products/clay.gif или /img/products/brand/clay.gif
+    id: number
+}
+interface IProductAPI {
+    id: number;             // => '422547',
+    name: string;           // => 'Бурбон',
+    symbol: string;         // => 'bourbon', по факту просто имя картинки без пути и gif
+    img: string;
+    category_id: number;    // => '1532',       // розничный отдел
+    category_name: string;  //  => 'Бакалея',
+}
+
+interface IStock {
+    available: number;
+    product: IProductProperties;
+}
+interface IRetailStock extends IStock {
+    sold: number;
+    deliver: number;
+    ordered: number;
+}
+interface IProductProperties {
+    price: number;
+    quality: number;
+    brand: number;
+}
+interface ITradeHallItem {
+    product: IProduct;
+    stock: IRetailStock;
+
+    reportUrl: string;
+    historyUrl: string;
+
+    dontSale: boolean;  // флаг говорящий что товар НЕ продается
+    name: string;    // это name аттрибут текстбокса с ценой, чтобы удобно обновлять цены запросом
+    share: number;
+    price: number;  // текущая цена продажи
+    city: IProductProperties;
+}
+interface ISaleWareItem {
+    product: IProduct;
+    stock: IStock;
+    outOrdered: number;
+
+    price: number;
+    salePolicy: SalePolicies;
+    maxQty: number | null;  // ограничение на макс объем заказа
+
+    priceName: string;  // имена элементов для быстрого поиска по форме потом
+    policyName: string;
+    maxName: string;    // окно ввода максимума
+}
+
+
+function dictKeysN(dict: IDictionaryN<any>): number[] {
+    return Object.keys(dict).map((v, i, arr) => parseInt(v));
+}
+function dictKeys(dict: IDictionary<any>): string[] {
+    return Object.keys(dict);
+}
+function dictValues<T>(dict: IDictionary<T>): T[] {
+    let res: T[] = [];
+    for (let key in dict)
+        res.push(dict[key]);
+
+    return res;
+}
+function dictValuesN<T>(dict: IDictionaryN<T>): T[] {
+    let res: T[] = [];
+    for (let key in dict)
+        res.push(dict[key]);
+
+    return res;
+}
+function unique<T>(array: T[]): T[] {
+    let res: T[] = [];
+    for (let i = 0; i < array.length; i++) {
+        let item = array[i];
+        if (array.indexOf(item) === i)
+            res.push(item);
+    }
+
+    return res;
+}
+function intersect<T>(a: T[], b: T[]): T[] {
+
+    // чтобы быстрее бегал indexOf в A кладем более длинный массив
+    if (b.length > a.length) {
+        let t = b;
+        b = a;
+        a = t;
+    }
+
+    // находим пересечение с дублями
+    let intersect: T[] = [];
+    for (let item of a) {
+        if (b.indexOf(item) >= 0)
+            intersect.push(item);
+    }
+
+    // если надо удалить дубли, удаляем
+    return unique(intersect);
+}
+function isOneOf<T>(item: T, arr: T[]) {
+    if (arr.length <= 0)
+        return false;
+
+    return arr.indexOf(item) >= 0;
+}
+function getRealm(): string | null {
+    // https://*virtonomic*.*/*/main/globalreport/marketing/by_trade_at_cities/*
+    // https://*virtonomic*.*/*/window/globalreport/marketing/by_trade_at_cities/*
+    let rx = new RegExp(/https:\/\/virtonomic[A-Za-z]+\.[a-zA-Z]+\/([a-zA-Z]+)\/.+/ig);
+    let m = rx.exec(document.location.href);
+    if (m == null)
+        return null;
+
+    return m[1];
+}
+function getRealmOrError(): string {
+    let realm = getRealm();
+    if (realm === null)
+        throw new Error("Не смог определить реалм по ссылке " + document.location.href);
+
+    return realm;
+}
+function getOnlyText(item: JQuery): string[] {
+
+    // просто children() не отдает текстовые ноды.
+    let $childrenNodes = item.contents();
+    let res: string[] = [];
+    for (let i = 0; i < $childrenNodes.length; i++) {
+        let el = $childrenNodes.get(i);
+        if (el.nodeType === 3)
+            res.push($(el).text());     // так как в разных браузерах текст запрашивается по разному, 
+        // универсальный способ запросить через jquery
+    }
+
+    return res;
+}
+function monthFromStr(str: string) {
+    let mnth = ["январ", "феврал", "март", "апрел", "ма", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"];
+    for (let i = 0; i < mnth.length; i++) {
+        if (str.indexOf(mnth[i]) === 0)
+            return i;
+    }
+
+    return null;
+}
+function extractDate(str: string): Date | null {
+    let dateRx = /^(\d{1,2})\s+([а-я]+)\s+(\d{1,4})/i;
+    let m = dateRx.exec(str);
+    if (m == null)
+        return null;
+
+    let d = parseInt(m[1]);
+    let mon = monthFromStr(m[2]);
+    if (mon == null)
+        return null;
+
+    let y = parseInt(m[3]);
+
+    return new Date(y, mon, d);
+}
+function parseGameDate(html: any): Date | null {
+    let $html = $(html);
+
+    try {
+        // вытащим текущую дату, потому как сохранять данные будем используя ее
+        let $date = $html.find("div.date_time");
+        if ($date.length !== 1)
+            return null;
+        //throw new Error("Не получилось получить текущую игровую дату");
+
+        let currentGameDate = extractDate(getOnlyText($date)[0].trim());
+        if (currentGameDate == null)
+            return null;
+        //throw new Error("Не получилось получить текущую игровую дату");
+
+        return currentGameDate;
+    }
+    catch (err) {
+        throw err;
+    }
+}
+function logDebug(msg: string, ...args: any[]) {
+    if (!$xioDebug)
+        return;
+
+    console.log(msg, ...args);
+}
+function buildStoreKey(realm: string | null, code: string, subid?: number): string {
+    if (code.length === 0)
+        throw new RangeError("Параметр code не может быть равен '' ");
+
+    if (realm != null && realm.length === 0)
+        throw new RangeError("Параметр realm не может быть равен '' ");
+
+    if (subid != null && realm == null)
+        throw new RangeError("Как бы нет смысла указывать subid и не указывать realm");
+
+    let res = "^*";  // уникальная ботва которую добавляем ко всем своим данным
+    if (realm != null)
+        res += "_" + realm;
+
+    if (subid != null)
+        res += "_" + subid;
+
+    res += "_" + code;
+
+    return res;
+}
+function nullCheck<T>(val: T | null | undefined): T {
+
+    if (val == null)
+        throw new Error(`nullCheck Error`);
+
+    return val;
+}
+function dateToShort(date: Date): string {
+    let d = date.getDate();
+    let m = date.getMonth() + 1;
+    let yyyy = date.getFullYear();
+
+    let dStr = d < 10 ? "0" + d : d.toString();
+    let mStr = m < 10 ? "0" + m : m.toString();
+
+    return `${dStr}.${mStr}.${yyyy}`;
+}
+function formatStr(str: string, ...args: any[]): string {
+    let res = str.replace(/{(\d+)}/g, (match, number) => {
+        if (args[number] == null)
+            throw new Error(`плейсхолдер ${number} не имеет значения`);
+
+        return args[number];
+    });
+    return res;
+}
+function parseJSON(jsonStr: string): any {
+    let obj = JSON.parse(jsonStr, (k, v) => {
+        if (v === "t") return true;
+        if (v === "f") return false;
+
+        return (typeof v === "object" || isNaN(v)) ? v : parseFloat(v);
+    });
+
+    return obj;
+}
+async function tryGetJSON_async(url: string, retries: number = 10, timeout: number = 1000): Promise<any> {
+    let $deffered = $.Deferred<string>();
+
+    $.ajax({
+        url: url,
+        type: "GET",
+        cache: false,
+        dataType: "text",
+
+        success: (jsonStr, status, jqXHR) => {
+            let obj = parseJSON(jsonStr);
+            $deffered.resolve(obj);
+        },
+
+        error: function (this: JQueryAjaxSettings, jqXHR: JQueryXHR, textStatus: string, errorThrown: string) {
+            retries--;
+            if (retries <= 0) {
+                let err = new Error(`can't get ${this.url}\nstatus: ${jqXHR.status}\ntextStatus: ${jqXHR.statusText}\nerror: ${errorThrown}`);
+                $deffered.reject(err);
+                return;
+            }
+
+            //logDebug(`ошибка запроса ${this.url} осталось ${retries} попыток`);
+            let _this = this;
+            setTimeout(() => {
+                $.ajax(_this);
+            }, timeout);
+        }
+    });
+
+    return $deffered.promise();
+}
+async function tryPost_async(url: string, form: any, retries: number = 10, timeout: number = 1000): Promise<any> {
+
+    let $deferred = $.Deferred<string>();
+    $.ajax({
+        url: url,
+        data: form,
+        type: "POST",
+
+        success: (data, status, jqXHR) => $deferred.resolve(data),
+
+        error: function (this: JQueryAjaxSettings, jqXHR: JQueryXHR, textStatus: string, errorThrown: string) {
+            retries--;
+            if (retries <= 0) {
+                let err = new Error(`can't post ${this.url}\nstatus: ${jqXHR.status}\ntextStatus: ${jqXHR.statusText}\nerror: ${errorThrown}`);
+                $deferred.reject(err);
+                return;
+            }
+
+            //logDebug(`ошибка запроса ${this.url} осталось ${retries} попыток`);
+            let _this = this;
+            setTimeout(() => {
+                $.ajax(_this);
+            }, timeout);
+        }
+    });
+
+    return $deferred.promise();
+}
+
+function parseRetailProductsAPI(jsonObj: any, url: string): IDictionaryN<IProductAPI> {
+    try {
+        let res: IDictionary<IProductAPI> = {};
+        for (let pid in jsonObj) {
+            let prod = jsonObj[pid];
+            if (prod.symbol.length <= 0)
+                throw new Error("пустая строка вместо символа продукта.");
+
+            let img = `/img/products/${prod.symbol}.gif`;
+            prod["img"] = img;
+
+            res[pid] = prod;
+        }
+
+        return res;
+    }
+    catch (err) {
+        throw err;
+    }
+}
+function parseUnitNameCity($html: JQuery): [string, string] {
+    let x: IProduct;
+
+    // сюда либо прилетает ВСЯ страница либо только шапка. поэтому фильтры надо БЕЗ использования классов шапки
+    // ниже нам придется ремувать элементы, поэтому надо клонировать див.
+    let $div = oneOrError($html, ".content:has(.bg-image) div.title").clone(false, false);     // новая универсальное поле имя/городв
+
+    // name
+    let name = oneOrError($div, "h1").text().trim();
+    if (name == null || name.length < 1)
+        throw new Error(`не найдено имя юнита`);
+
+    // city
+    // Нижний Новгород (Россия)	строка с городом но там еще куча мусора блять
+    // Нижний Новгород (Россия, Южная россия) может и так быть то есть регион
+    // привяжемся к ссылке на страну она идет последней
+    //let s = $div.find("a:last").map((i, el) => el.previousSibling.nodeValue)[0] as any as string;
+    let s = $div.children().detach().end().text().trim() as any as string;
+    let last = s.split(/\t/).pop();
+    if (last == null)
+        throw new Error(`не найден город юнита ${name}`);
+
+    let m = last.match(/^(.*)\(/i);
+    if (m == null || m[1] == null || m[1].length <= 1)
+        throw new Error(`не найден город юнита ${name}`);
+
+    let city = m[1].trim();
+
+    return [name, city];
+}
+function oneOrError($item: JQuery, selector: string): JQuery {
+    let $one = $item.find(selector);
+    if ($one.length != 1)
+        throw new Error(`Найдено ${$one.length} элементов вместо 1 для селектора ${selector}`);
+
+    return $one;
+}
+function extractIntPositive(str: string): number[] | null {
+    let m = cleanStr(str).match(/\d+/ig);
+    if (m == null)
+        return null;
+
+    let n = m.map((val, i, arr) => numberfyOrError(val, -1));
+    return n;
+}
+function cleanStr(str: string): string {
+    return str.replace(/[\s\$\%\©]/g, "");
+}
+function numberfyOrError(str: string, minVal: number = 0, infinity: boolean = false) {
+    let n = numberfy(str);
+    if (!infinity && (n === Number.POSITIVE_INFINITY || n === Number.NEGATIVE_INFINITY))
+        throw new RangeError("Получили бесконечность, что запрещено.");
+
+    if (n <= minVal) // TODO: как то блять неудобно что мин граница не разрешается. удобнее было бы если б она была разрешена
+        throw new RangeError("Число должно быть > " + minVal);
+
+    return n;
+}
+function numberfy(str: string): number {
+    // возвращает либо число полученно из строки, либо БЕСКОНЕЧНОСТЬ, либо -1 если не получилось преобразовать.
+
+    if (String(str) === 'Не огр.' ||
+        String(str) === 'Unlim.' ||
+        String(str) === 'Не обм.' ||
+        String(str) === 'N’est pas limité' ||
+        String(str) === 'No limitado' ||
+        String(str) === '无限' ||
+        String(str) === 'Nicht beschr.') {
+        return Number.POSITIVE_INFINITY;
+    } else {
+        // если str будет undef null или что то страшное, то String() превратит в строку после чего парсинг даст NaN
+        // не будет эксепшнов
+        let n = parseFloat(cleanStr(String(str)));
+        return isNaN(n) ? -1 : n;
+    }
+}
+function parseUnitType($html: JQuery): UnitTypes {
+
+    // классы откуда можно дернуть тип юнита грузятся скриптом уже после загрузки страницц
+    // и добавляются в дивы. Поэтому берем скрипт который это делает и тащим из него информацию
+    let lines = $html.find("div.title script").text().split(/\n/);
+
+    let rx = /\bbody\b.*?\bbg-page-unit-(.*)\b/i;
+    let typeStr = "";
+    for (let line of lines) {
+        let arr = rx.exec(line);
+        if (arr != null && arr[1] != null) {
+            typeStr = arr[1];
+            break;
+        }
+    }
+
+    if (typeStr.length <= 0)
+        throw new Error("Невозможно спарсить тип юнита");
+
+    // некоторый онанизм с конверсией но никак иначе
+    let type: UnitTypes = (UnitTypes as any)[typeStr] ? (UnitTypes as any)[typeStr] : UnitTypes.unknown;
+    if (type == UnitTypes.unknown)
+        throw new Error("Не описан тип юнита " + typeStr);
+
+    return type;
+}
+function closestByTagName(items: JQuery, tagname: string): JQuery {
+    let tag = tagname.toUpperCase();
+
+    let found: Node[] = [];
+    for (let i = 0; i < items.length; i++) {
+        let node: Node = items[i];
+        while ((node = node.parentNode) && node.nodeName != tag) { };
+
+        if (node)
+            found.push(node);
+    }
+
+    return $(found);
+}
+function isWindow($html: JQuery, url: string) {
+    return url.indexOf("/window/") > 0;
+}
+function parseUnitTradeHall(html: any, url: string): [number, ITradeHallItem[]] {
+    let $html = $(html);
+
+    try {
+        let $tbl = isWindow($html, url)
+            ? $html.filter("table.list")
+            : $html.find("table.list");
+
+        let str = oneOrError($tbl, "div:first").text().trim();
+        let filling = numberfyOrError(str, -1);
+
+        let $rows = closestByTagName($html.find("a.popup"), "tr");
+        let thItems: ITradeHallItem[] = [];
+        $rows.each((i, el) => {
+            let $r = $(el);
+            let $tds = $r.children("td");
+
+            let cityRepUrl = oneOrError($tds.eq(2), "a").attr("href");
+            let historyUrl = oneOrError($r, "a.popup").attr("href");
+
+            // продукт
+            // картинка может быть просто от /products/ так и ТМ /products/brand/ типа
+            let img = oneOrError($tds.eq(2), "img").attr("src");
+
+            let nums = extractIntPositive(cityRepUrl);
+            if (nums == null)
+                throw new Error("не получилось извлечь id продукта из ссылки " + cityRepUrl);
+
+            let prodID = nums[0];
+            let prodName = $tds.eq(2).attr("title").split("(")[0].trim();
+
+            let product: IProduct = { id: prodID, img: img, name: prodName };
+
+            // склад. может быть -- вместо цены, кач, бренд так что -1 допускается
+            let stock: IRetailStock = {
+                available: numberfyOrError($tds.eq(5).text(), -1), // 0 или больше всегда должно быть,
+                deliver: numberfyOrError($tds.eq(4).text().split("[")[1], -1),
+                sold: numberfyOrError(oneOrError($tds.eq(3), "a.popup").text(), -1),
+                ordered: numberfyOrError(oneOrError($tds.eq(4), "a").text(), -1),
+                product: {
+                    price: numberfy($tds.eq(8).text()),
+                    quality: numberfy($tds.eq(6).text()),
+                    brand: numberfy($tds.eq(7).text())
+                }
+            };
+
+            // прочее "productData[price][{37181683}]" а не то что вы подумали
+            let $input = oneOrError($tds.eq(9), "input");
+            let name = $input.attr("name");
+            let currentPrice = numberfyOrError($input.val(), -1);
+            let dontSale = $tds.eq(9).find("span").text().indexOf("продавать") >= 0;
+
+
+            // среднегородские цены
+            let share = numberfyOrError($tds.eq(10).text(), -1)
+            let city: IProductProperties = {
+                price: numberfyOrError($tds.eq(11).text()),
+                quality: numberfyOrError($tds.eq(12).text()),
+                brand: numberfyOrError($tds.eq(13).text(), -1)
+            };
+
+            thItems.push({
+                product: product,
+                stock: stock,
+                price: currentPrice,
+                city: city,
+                share: share,
+                historyUrl: historyUrl,
+                reportUrl: cityRepUrl,
+                name: name,
+                dontSale: dontSale
+            });
+        });
+
+        return [filling, thItems];
+    }
+    catch (err) {
+        throw err;
+    }
+}
+function parseWareSaleNew(html: any, url: string): [JQuery, IDictionary<ISaleWareItem>] {
+    let $html = $(html);
+
+    try {
+        let $form = isWindow($html, url)
+            ? $html.filter("form[name=storageForm]")
+            : $html.find("form[name=storageForm]");
+        if ($form.length <= 0)
+            throw new Error("Не найдена форма.");
+
+        let $tbl = oneOrError($html, "table.grid");
+        let $rows = closestByTagName($tbl.find("select[name*='storageData']"), "tr");
+
+        let dict: IDictionary<ISaleWareItem> = {};
+        $rows.each((i, el) => {
+            let $r = $(el);
+            let $tds = $r.children("td");
+
+            // товар
+            let prod = parseProduct($tds.eq(2));
+
+            let $price = oneOrError($r, "input.money[name*='[price]']");
+            let $policy = oneOrError($r, "select[name*='[constraint]']");
+            let $maxQty = oneOrError($r, "input.money[name*='[max_qty]']");
+            let maxQty: null | number = numberfy($maxQty.val());
+            maxQty = maxQty > 0 ? maxQty : null;
+
+            dict[prod.img] = {
+                product: prod,
+                stock: parseStock($tds.eq(3)),
+                outOrdered: numberfyOrError($tds.eq(4).text(), -1),
+
+                price: numberfyOrError($price.val(), -1),
+                salePolicy: $policy.prop("selectedIndex"),
+                maxQty: maxQty,
+
+                priceName: $price.attr("name"),
+                policyName: $policy.attr("name"),
+                maxName: $maxQty.attr("name"),
+            }
+        });
+
+        return [$form, dict];
+    }
+    catch (err) {
+        //throw new ParseError("sale", url, err);
+        throw err;
+    }
+
+
+    function parseProduct($td: JQuery): IProduct {
+
+        // товар
+        let $img = oneOrError($td, "img");
+        let img = $img.attr("src");
+        let name = $img.attr("alt");
+
+        let $a = oneOrError($td, "a");
+        let n = extractIntPositive($a.attr("href"));
+        if (n == null || n.length > 1)
+            throw new Error("не нашли id товара " + img);
+
+        let id = n[0];
+
+        return { name: name, img: img, id: id };
+    }
+
+    // если товара нет, то характеристики товара зануляет
+    function parseStock($td: JQuery): IStock {
+        let $rows = $td.find("tr");
+
+        // могут быть прочерки для товаров которых нет вообще
+        let available = numberfy(oneOrError($td, "td:contains(Количество)").next("td").text());
+        if (available < 0)
+            available = 0;
+
+        return {
+            available: available,
+            product: {
+                brand: 0,
+                price: available > 0 ? numberfyOrError(oneOrError($td, "td:contains(Себестоимость)").next("td").text()) : 0,
+                quality: available > 0 ? numberfyOrError(oneOrError($td, "td:contains(Качество)").next("td").text()) : 0
+            }
+        }
+    }
+}
 
 
 $(document).ready(() => run_async());
