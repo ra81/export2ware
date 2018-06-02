@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @name          Вывоз на склад
 // @namespace     virtonomica
 // @description   Массовый вывоз товара из магазина на склады в 1 клик.
-// @version       1.0
+// @version       1.01
 // @include       http*://virtonomic*.*/*/main/unit/view/*/sale
 // @include       http*://virtonomic*.*/*/main/unit/view/*/trading_hall
 // @require       https://code.jquery.com/jquery-1.11.1.min.js
@@ -21,7 +21,8 @@ let $xioDebug = true;
 let Realm = getRealmOrError();
 let GameDate = parseGameDate(document);
 let Export2WareStoreKeyCode = "e2w";
-let ProdCatStoreKeyCode = "prct"; // сделал неким отдельным ключиком, вдруг будет скрипт читающий эту же табличку
+let ProdCatStoreKeyCode = "prct"; // список продуктов с категориями. сделал неким отдельным ключиком, вдруг будет скрипт читающий эту же табличку
+let TMStoreKeyCode = "prtm"; // список ТМ продуктов
 let EnablePriceMgmnt = true; // если выключить то кнопки изменения цен исчезнут
 let EnableExport2w = true; // если выключить то функции экспорт ВСЕ перестанут работать
 // упрощаем себе жисть, подставляем имя скрипта всегда в сообщении
@@ -55,7 +56,8 @@ function run_async() {
                 //    .appendTo(document.head);
                 let selClassName = "selected"; // класс которым будем выделять строки доступные для экспорта
                 // собираем данные с хранилища
-                let exportWares = restore();
+                let exportWares = restoreWare();
+                let tm = yield getTMProducts_async();
                 let prodCatDict = yield getProdWithCategories_async();
                 let getCategory = (pid) => nullCheck(prodCatDict[pid]).category_name;
                 // для каждого товара удалим штатные события дабы свои работали нормально
@@ -70,13 +72,17 @@ function run_async() {
                 for (let thItem of thItems) {
                     let $r = oneOrError($form, `input[name='${thItem.name}']`).closest("tr");
                     let $cbx = oneOrError($r, "input:checkbox");
+                    let brand = tm[thItem.product.img];
+                    let brand_id = brand == null ? 0 : brand.brand_id; // простой товар будет иметь 0. кривые бренды пойдут с null
                     dataCache.push({
                         available: thItem.stock.available,
                         sold: thItem.stock.sold,
                         category: getCategory(thItem.product.id),
                         pid: thItem.product.id,
                         row: $r,
-                        cbx: $cbx
+                        cbx: $cbx,
+                        brand_id: brand_id,
+                        prod_name: thItem.product.name
                     });
                 }
                 // формируем словарь Отдел => pid[] для отрисовки селекта отделов. Пустые товары выкидываем.
@@ -245,7 +251,7 @@ function run_async() {
                             alert("Не выбран склад на который вывозить товары.\nЭкспорт невозможен.");
                             return;
                         }
-                        let pids = dataCache.filter((v, i, a) => v.cbx.prop("checked") == true).map((v, i, a) => [v.pid, v.available, v.sold]);
+                        let pids = dataCache.filter((v, i, a) => v.cbx.prop("checked") == true);
                         if (pids.length <= 0) {
                             alert("Не выбрано ни одного товара.\nЭкспорт невозможен.");
                             return;
@@ -260,10 +266,12 @@ function run_async() {
                         let wareSubid = numberfyOrError($wareSel.val());
                         // теперь надо множитель дернуть для остатка
                         let mult = numberfyOrError($(this).data("mult"), -1);
-                        for (let [pid, available, sold] of pids) {
-                            let url = `/${Realm}/window/unit/view/${subid}/product_move_to_warehouse/${pid}/0`;
+                        for (let obj of pids) {
+                            if (obj.brand_id == null)
+                                alert(`Товар ${obj.prod_name} будет вывезен. Код бренда не найден.`);
+                            let url = `/${Realm}/window/unit/view/${subid}/product_move_to_warehouse/${obj.pid}/${obj.brand_id}`;
                             let data = {
-                                qty: available - sold * mult,
+                                qty: obj.available - obj.sold * mult,
                                 unit: wareSubid,
                                 doit: "Ok"
                             };
@@ -301,7 +309,7 @@ function run_async() {
             let subid = n[0];
             // name
             let [name, city] = parseUnitNameCity($html);
-            let dict = restore();
+            let dict = restoreWare();
             let isSaved = dict[subid] != null;
             let saveWare = () => {
                 // собираем всю инфу по товарам которые может хранить собственно сей склад и подготавливаем Запись
@@ -313,11 +321,11 @@ function run_async() {
                     products: products,
                     spec: spec
                 };
-                store(dict);
+                storeWare(dict);
             };
             let deleteWare = () => {
                 delete dict[subid];
-                store(dict);
+                storeWare(dict);
             };
             // если спецуха изменилась, то обновим данные по складу
             let spec = oneOrError($html, "table:has(a.popup[href*='speciality_change'])").find("td").eq(2).text().trim();
@@ -340,7 +348,7 @@ function run_async() {
  * Сохраняет данные в хранилище
  * @param dict
  */
-function store(dict) {
+function storeWare(dict) {
     nullCheck(dict);
     let storageKey = buildStoreKey(Realm, Export2WareStoreKeyCode);
     localStorage[storageKey] = LZString.compress(JSON.stringify(dict));
@@ -348,7 +356,7 @@ function store(dict) {
 /**
  * Возвращает считанный словарь складов для экспорта либо пустой словарь если ничего нет
  */
-function restore() {
+function restoreWare() {
     // читаем с хранилища, есть ли данные по складу там
     let storageKey = buildStoreKey(Realm, Export2WareStoreKeyCode);
     let data = localStorage.getItem(storageKey);
@@ -377,6 +385,40 @@ function getProdWithCategories_async() {
         let prods = parseRetailProductsAPI(jsonObj, url);
         localStorage[storageKey] = LZString.compress(JSON.stringify([todayStr, prods]));
         return prods;
+    });
+}
+/**
+ * формирует общий список ТМ товаров включая франшизы и пишет в хранилище. бдит за обновлением
+ */
+function getTMProducts_async() {
+    return __awaiter(this, void 0, void 0, function* () {
+        let storageKey = buildStoreKey(Realm, TMStoreKeyCode);
+        let data = localStorage.getItem(storageKey);
+        let today = nullCheck(GameDate);
+        // обновлять будем раз в виртогод насильно. вдруг введут новые продукты вся херня
+        if (data != null) {
+            let [dateStr, tm] = JSON.parse(LZString.decompress(data));
+            if (today.getFullYear() == dateFromShort(dateStr).getFullYear())
+                return tm;
+        }
+        log("Список всех ТМ продуктов устарел. Обновляем.");
+        let urlTM = formatStr(`/{0}/main/globalreport/tm/info`, Realm);
+        let html = yield tryGet_async(urlTM);
+        let tm = parseTM(html, urlTM);
+        let urlFranchise = formatStr(`/{0}/main/franchise_market/list`, Realm);
+        html = yield tryGet_async(urlFranchise);
+        let franchise = parseFranchise(html, urlTM);
+        // теперь для списка ТМ надо дополнить франшизные продукты так как там не было brand_id для них
+        for (let img in franchise) {
+            let f = franchise[img];
+            let t = tm[img];
+            if (t == null)
+                throw new Error(`что то пошло не так, среди брендов не нашли франшизу ${f.img}`);
+            t.brand_id = f.brand_id;
+        }
+        let todayStr = dateToShort(today);
+        localStorage[storageKey] = LZString.compress(JSON.stringify([todayStr, tm]));
+        return tm;
     });
 }
 /**
@@ -687,6 +729,103 @@ function tryPost_async(url, form, retries = 10, timeout = 1000) {
         return $deferred.promise();
     });
 }
+function tryGet_async(url, retries = 10, timeout = 1000) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let $deffered = $.Deferred();
+        $.ajax({
+            url: url,
+            type: "GET",
+            success: (data, status, jqXHR) => $deffered.resolve(data),
+            error: function (jqXHR, textStatus, errorThrown) {
+                retries--;
+                if (retries <= 0) {
+                    let err = new Error(`can't get ${this.url}\nstatus: ${jqXHR.status}\ntextStatus: ${jqXHR.statusText}\nerror: ${errorThrown}`);
+                    $deffered.reject(err);
+                    return;
+                }
+                let _this = this;
+                setTimeout(() => {
+                    $.ajax(_this);
+                }, timeout);
+            }
+        });
+        return $deffered.promise();
+    });
+}
+function parseTM(html, url) {
+    let $html = $(html);
+    try {
+        let $imgs = isWindow($html, url)
+            ? $html.filter("table.grid").find("img")
+            : $html.find("table.grid").find("img");
+        if ($imgs.length <= 0)
+            throw new Error("Не найдено ни одного ТМ товара.");
+        let dict = {};
+        $imgs.each((i, el) => {
+            let $img = $(el);
+            let $tdText = $img.closest("td").next("td");
+            // /img/products/brand/krakow.gif  - виртономская франшиза
+            // /img/products/vera/brand/0909/tarlka.gif
+            // /img/products/olga/brand/4100738.gif - реальный ТМ товар. Номер это номер ТМ по факту. надо парсить его
+            let img = $img.attr("src");
+            let [symbol,] = extractFile(img);
+            let brand_id = numberfy(symbol);
+            let brandName = $tdText.find("b").text().trim(); // может быть и пустым
+            let prodName = getOnlyText($tdText).join("").trim();
+            if (prodName.length <= 0)
+                throw new Error("ошибка извлечения имени товара франшизы для " + img);
+            dict[img] = {
+                img: img,
+                product_name: prodName,
+                brand_name: brandName.length > 0 ? brandName : "noname",
+                brand_id: brand_id > 0 ? brand_id : null,
+                is_franchise: brand_id <= 0
+            };
+        });
+        return dict;
+    }
+    catch (err) {
+        throw err;
+    }
+}
+function parseFranchise(html, url) {
+    let $html = $(html);
+    try {
+        let $tbl = oneOrError($html, "form > table.list");
+        let $rows = $tbl.find("tr.even, tr.odd");
+        if ($rows.length < 1)
+            throw new Error(`Не найдено ни одной франшизы по ссылке ${url}`);
+        let dict = {};
+        $rows.each((i, el) => {
+            let $r = $(el);
+            let $tds = $r.children("td");
+            // brand_id
+            let m = nullCheck(extractIntPositive($tds.eq(1).find("a").attr("href")));
+            let brand_id = m[0];
+            if (brand_id <= 0)
+                throw new Error(`id франшизы не могут быть < 0. ${$tds.eq(1).find("a").attr("href")}`);
+            let brandName = $tds.eq(2).text().trim();
+            if (brandName.length <= 0)
+                throw new Error(`имя франшизы ${brand_id} не может быть пустым`);
+            // /img/products/vera/brand/0909/tarlka.gif
+            let img = $tds.eq(2).find("img").attr("src");
+            let prodName = $tds.eq(4).text().trim();
+            if (prodName.length <= 0)
+                throw new Error("ошибка извлечения имени товара франшизы для " + img);
+            dict[img] = {
+                img: img,
+                product_name: prodName,
+                brand_name: brandName,
+                brand_id: brand_id > 0 ? brand_id : null,
+                is_franchise: true
+            };
+        });
+        return dict;
+    }
+    catch (err) {
+        throw err;
+    }
+}
 function parseRetailProductsAPI(jsonObj, url) {
     try {
         let res = {};
@@ -939,5 +1078,29 @@ function parseWareSaleNew(html, url) {
             }
         };
     }
+}
+function extractFile(fileUrl) {
+    let items = fileUrl.split("/");
+    if (items.length < 2)
+        throw new Error(`Очевидно что ${fileUrl} не ссылка на файл`);
+    let file = items[items.length - 1];
+    let [symbol, ext] = file.split("."); // если нет расширения то будет undef во втором
+    ext = ext == null ? "" : ext;
+    if (symbol.length <= 0)
+        throw new Error(`Нулевая длина имени файлв в ${fileUrl}`);
+    return [symbol, ext];
+}
+function dateFromShort(str) {
+    let items = str.split(".");
+    let d = parseInt(items[0]);
+    if (d <= 0)
+        throw new Error("дата неправильная.");
+    let m = parseInt(items[1]) - 1;
+    if (m < 0)
+        throw new Error("месяц неправильная.");
+    let y = parseInt(items[2]);
+    if (y < 0)
+        throw new Error("год неправильная.");
+    return new Date(y, m, d);
 }
 $(document).ready(() => run_async());

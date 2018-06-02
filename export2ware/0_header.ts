@@ -2,7 +2,7 @@
 // @name          Вывоз на склад
 // @namespace     virtonomica
 // @description   Массовый вывоз товара из магазина на склады в 1 клик.
-// @version       1.0
+// @version       1.01
 // @include       http*://virtonomic*.*/*/main/unit/view/*/sale
 // @include       http*://virtonomic*.*/*/main/unit/view/*/trading_hall
 // @require       https://code.jquery.com/jquery-1.11.1.min.js
