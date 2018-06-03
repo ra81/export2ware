@@ -1,6 +1,7 @@
 ﻿// ==UserScript==
 // @name          Вывоз на склад
 // @namespace     virtonomica
+// @author        mr_Sumkin
 // @description   Массовый вывоз товара из магазина на склады в 1 клик.
 // @version       1.01
 // @include       http*://virtonomic*.*/*/main/unit/view/*/sale
