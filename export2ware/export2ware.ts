@@ -1152,7 +1152,7 @@ function closestByTagName(items: JQuery, tagname: string): JQuery {
 
     let found: Node[] = [];
     for (let i = 0; i < items.length; i++) {
-        let node: Node = items[i];
+        let node: Node | null = items[i];
         while ((node = node.parentNode) && node.nodeName != tag) { };
 
         if (node)

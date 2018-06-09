@@ -3,10 +3,10 @@
 // @namespace     virtonomica
 // @author        mr_Sumkin
 // @description   Массовый вывоз товара из магазина на склады в 1 клик.
-// @version       1.01
+// @version       1.02
 // @include       http*://virtonomic*.*/*/main/unit/view/*/sale
 // @include       http*://virtonomic*.*/*/main/unit/view/*/trading_hall
 // @require       https://code.jquery.com/jquery-1.11.1.min.js
-// @require       https://raw.githubusercontent.com/pieroxy/lz-string/master/libs/lz-string.min.js
+// @require       https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.js
 // ==/UserScript==
 

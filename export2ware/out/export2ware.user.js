@@ -1,9 +1,9 @@
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator.throw(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
         function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments)).next());
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
 // ==UserScript==
@@ -11,11 +11,11 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @namespace     virtonomica
 // @author        mr_Sumkin
 // @description   Массовый вывоз товара из магазина на склады в 1 клик.
-// @version       1.01
+// @version       1.02
 // @include       http*://virtonomic*.*/*/main/unit/view/*/sale
 // @include       http*://virtonomic*.*/*/main/unit/view/*/trading_hall
 // @require       https://code.jquery.com/jquery-1.11.1.min.js
-// @require       https://raw.githubusercontent.com/pieroxy/lz-string/master/libs/lz-string.min.js
+// @require       https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.js
 // ==/UserScript==
 $ = jQuery = jQuery.noConflict(true);
 let $xioDebug = true;
@@ -279,6 +279,7 @@ function run_async() {
                             if (data.qty <= 0)
                                 continue;
                             yield tryPost_async(url, data); // если задать неадекватный адрес склада то молча не вывозит и все.
+                            //console.log(data);
                         }
                         document.location.reload();
                     });
@@ -468,6 +469,8 @@ function filterWares(waresDict, pids) {
 // всякий мусор для работы всего
 //
 var UnitTypes;
+// всякий мусор для работы всего
+//
 (function (UnitTypes) {
     UnitTypes[UnitTypes["unknown"] = 0] = "unknown";
     UnitTypes[UnitTypes["animalfarm"] = 1] = "animalfarm";
@@ -584,6 +587,7 @@ function getOnlyText(item) {
         let el = $childrenNodes.get(i);
         if (el.nodeType === 3)
             res.push($(el).text()); // так как в разных браузерах текст запрашивается по разному, 
+        // универсальный способ запросить через jquery
     }
     return res;
 }
@@ -888,7 +892,7 @@ function numberfyOrError(str, minVal = 0, infinity = false) {
     let n = numberfy(str);
     if (!infinity && (n === Number.POSITIVE_INFINITY || n === Number.NEGATIVE_INFINITY))
         throw new RangeError("Получили бесконечность, что запрещено.");
-    if (n <= minVal)
+    if (n <= minVal) // TODO: как то блять неудобно что мин граница не разрешается. удобнее было бы если б она была разрешена
         throw new RangeError("Число должно быть > " + minVal);
     return n;
 }
