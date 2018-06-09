@@ -7,7 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 // ==UserScript==
-// @name          Вывоз на склад
+// @name          Virtonomica: Вывоз на склад
 // @namespace     virtonomica
 // @author        mr_Sumkin
 // @description   Массовый вывоз товара из магазина на склады в 1 клик.
