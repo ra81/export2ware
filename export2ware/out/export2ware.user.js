@@ -11,7 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @namespace     virtonomica
 // @author        mr_Sumkin
 // @description   Массовый вывоз товара из магазина на склады в 1 клик.
-// @version       1.02
+// @version       1.03
 // @include       http*://virtonomic*.*/*/main/unit/view/*/sale
 // @include       http*://virtonomic*.*/*/main/unit/view/*/trading_hall
 // @require       https://code.jquery.com/jquery-1.11.1.min.js
@@ -60,7 +60,7 @@ function run_async() {
                 let exportWares = restoreWare();
                 let tm = yield getTMProducts_async();
                 let prodCatDict = yield getProdWithCategories_async();
-                let getCategory = (pid) => nullCheck(prodCatDict[pid]).category_name;
+                let getCategory = (pid) => nullCheck(prodCatDict[pid]).product_category_name;
                 // для каждого товара удалим штатные события дабы свои работали нормально
                 // и удалим обработчик на общую галку. она будет работать иначе
                 let $rows = closestByTagName($html.find("table.grid a.popup"), "tr");
@@ -434,9 +434,9 @@ function categories(prods, prodCatDict) {
         let papi = prodCatDict[p.id];
         if (papi == null)
             throw new Error(`В словаре всех розничных продуктов не найден товар pid:${p.id} img:${p.img}`);
-        cats[papi.category_name] = cats[papi.category_name] == null
+        cats[papi.product_category_name] = cats[papi.product_category_name] == null
             ? 1
-            : cats[papi.category_name] + 1;
+            : cats[papi.product_category_name] + 1;
     }
     return cats;
 }
@@ -516,6 +516,14 @@ var SalePolicies;
     SalePolicies[SalePolicies["company"] = 3] = "company";
     SalePolicies[SalePolicies["corporation"] = 4] = "corporation";
 })(SalePolicies || (SalePolicies = {}));
+class ArgumentError extends Error {
+    constructor(argument, message) {
+        let msg = "argument";
+        if (message)
+            msg += " " + message;
+        super(msg);
+    }
+}
 function dictKeysN(dict) {
     return Object.keys(dict).map((v, i, arr) => parseInt(v));
 }
@@ -653,6 +661,16 @@ function nullCheck(val) {
     if (val == null)
         throw new Error(`nullCheck Error`);
     return val;
+}
+function numberCheck(value) {
+    if (!isFinite(value))
+        throw new ArgumentError("value", `${value} не является числом.`);
+    return value;
+}
+function stringCheck(value) {
+    if (typeof (value) != "string")
+        throw new ArgumentError("value", `${value} не является строкой.`);
+    return value;
 }
 function dateToShort(date) {
     let d = date.getDate();
@@ -834,13 +852,20 @@ function parseFranchise(html, url) {
 function parseRetailProductsAPI(jsonObj, url) {
     try {
         let res = {};
-        for (let pid in jsonObj) {
-            let prod = jsonObj[pid];
-            if (prod.symbol.length <= 0)
-                throw new Error("пустая строка вместо символа продукта.");
-            let img = `/img/products/${prod.symbol}.gif`;
-            prod["img"] = img;
-            res[pid] = prod;
+        let data = jsonObj;
+        for (let pid in data) {
+            let item = data[pid];
+            if (item.product_symbol.length <= 0)
+                throw new Error(`пустая строка вместо символа продукта для ${item.product_name}`);
+            let p = {
+                product_id: numberCheck(item.product_id),
+                product_name: stringCheck(item.product_name),
+                product_symbol: stringCheck(item.product_symbol),
+                img: `/img/products/${item.product_symbol}.gif`,
+                product_category_id: item.product_category_id,
+                product_category_name: item.product_category_name
+            };
+            res[pid] = p;
         }
         return res;
     }

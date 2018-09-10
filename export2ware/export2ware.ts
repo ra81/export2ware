@@ -61,7 +61,7 @@ async function run_async() {
         let exportWares = restoreWare();
         let tm = await getTMProducts_async();
         let prodCatDict = await getProdWithCategories_async();
-        let getCategory = (pid: number) => nullCheck(prodCatDict[pid]).category_name;
+        let getCategory = (pid: number) => nullCheck(prodCatDict[pid]).product_category_name;
 
         // для каждого товара удалим штатные события дабы свои работали нормально
         // и удалим обработчик на общую галку. она будет работать иначе
@@ -515,9 +515,9 @@ function categories(prods: IProduct[], prodCatDict: IDictionaryN<IProductAPI>) {
         if (papi == null)
             throw new Error(`В словаре всех розничных продуктов не найден товар pid:${p.id} img:${p.img}`);
 
-        cats[papi.category_name] = cats[papi.category_name] == null
+        cats[papi.product_category_name] = cats[papi.product_category_name] == null
             ? 1
-            : cats[papi.category_name] + 1;
+            : cats[papi.product_category_name] + 1;
     }
 
     return cats;
@@ -600,12 +600,12 @@ interface IProduct {
     id: number
 }
 interface IProductAPI {
-    id: number;             // => '422547',
-    name: string;           // => 'Бурбон',
-    symbol: string;         // => 'bourbon', по факту просто имя картинки без пути и gif
+    product_id: number;             // => '422547',
+    product_name: string;           // => 'Бурбон',
+    product_symbol: string;         // => 'bourbon', по факту просто имя картинки без пути и gif
     img: string;
-    category_id: number;    // => '1532',       // розничный отдел
-    category_name: string;  //  => 'Бакалея',
+    product_category_id: number;        // => '1532',       // розничный отдел
+    product_category_name: string;      //  => 'Бакалея',
 }
 
 interface IStock {
@@ -654,6 +654,16 @@ interface IProductTM {
     product_name: string;       // имя продукта на который выпущен бренд
     brand_id: number | null;           // собственно номер бренда. для франшиз тоже есть.
     is_franchise: boolean;      // для франшиз айди не всегда будет. поэтому отдельно маркируем такой бренд
+}
+
+class ArgumentError extends Error {
+    constructor(argument: string, message?: string) {
+        let msg = "argument";
+        if (message)
+            msg += " " + message;
+
+        super(msg);
+    }
 }
 
 function dictKeysN(dict: IDictionaryN<any>): number[] {
@@ -820,6 +830,18 @@ function nullCheck<T>(val: T | null | undefined): T {
         throw new Error(`nullCheck Error`);
 
     return val;
+}
+function numberCheck(value: any): number {
+    if (!isFinite(value))
+        throw new ArgumentError("value", `${value} не является числом.`);
+
+    return value;
+}
+function stringCheck(value: any): string {
+    if (typeof (value) != "string")
+        throw new ArgumentError("value", `${value} не является строкой.`);
+
+    return value;
 }
 function dateToShort(date: Date): string {
     let d = date.getDate();
@@ -1028,15 +1050,23 @@ function parseFranchise(html: any, url: string): IDictionary<IProductTM> {
 function parseRetailProductsAPI(jsonObj: any, url: string): IDictionaryN<IProductAPI> {
     try {
         let res: IDictionary<IProductAPI> = {};
-        for (let pid in jsonObj) {
-            let prod = jsonObj[pid];
-            if (prod.symbol.length <= 0)
-                throw new Error("пустая строка вместо символа продукта.");
+        let data = jsonObj
+        for (let pid in data) {
+            let item = data[pid] as IProductAPI;
+            if (item.product_symbol.length <= 0)
+                throw new Error(`пустая строка вместо символа продукта для ${item.product_name}`);
 
-            let img = `/img/products/${prod.symbol}.gif`;
-            prod["img"] = img;
+            let p: IProductAPI = {
+                product_id: numberCheck(item.product_id),
+                product_name: stringCheck(item.product_name),
+                product_symbol: stringCheck(item.product_symbol),
+                img: `/img/products/${item.product_symbol}.gif`,
 
-            res[pid] = prod;
+                product_category_id: item.product_category_id,
+                product_category_name: item.product_category_name
+            };
+
+            res[pid] = p;
         }
 
         return res;
