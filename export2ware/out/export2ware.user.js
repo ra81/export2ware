@@ -25,6 +25,7 @@ let Export2WareStoreKeyCode = "e2w";
 let ProdCatStoreKeyCode = "prct"; // список продуктов с категориями. сделал неким отдельным ключиком, вдруг будет скрипт читающий эту же табличку
 let TMStoreKeyCode = "prtm"; // список ТМ продуктов
 let EnablePriceMgmnt = true; // если выключить то кнопки изменения цен исчезнут
+let PriceStep = 2; // шаг изменения цены в %
 let EnableExport2w = true; // если выключить то функции экспорт ВСЕ перестанут работать
 // упрощаем себе жисть, подставляем имя скрипта всегда в сообщении
 function log(msg, ...args) {
@@ -299,7 +300,7 @@ function run_async() {
                 let oper = $btn.data("oper");
                 let $price = oneOrError($btn.closest("td"), "input:text");
                 let price = numberfyOrError($price.val());
-                price = oper == "inc" ? price * 1.02 : price * 0.98;
+                price = oper == "inc" ? price * (1 + PriceStep / 100) : price * (1 - PriceStep / 100);
                 $price.val(price.toFixed(2));
             });
         }
