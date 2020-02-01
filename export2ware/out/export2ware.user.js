@@ -11,7 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @namespace     virtonomica
 // @author        mr_Sumkin
 // @description   Массовый вывоз товара из магазина на склады в 1 клик.
-// @version       1.03
+// @version       1.04
 // @include       http*://virtonomic*.*/*/main/unit/view/*/sale
 // @include       http*://virtonomic*.*/*/main/unit/view/*/trading_hall
 // @require       https://code.jquery.com/jquery-1.11.1.min.js
